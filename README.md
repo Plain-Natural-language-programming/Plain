@@ -26,7 +26,7 @@ plain run examples/hello.pln
 
 ## Documentation
 
-All documentation is in the `docs/` directory, including install guides, installer build notes, and distribution steps.
+All documentation is in the other repo.
 
 ## Examples
 
