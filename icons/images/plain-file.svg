@@ -1,22 +1,12 @@
-<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Minimalist grey bird icon -->
-  <g fill="#6B7280" opacity="0.85">
-    <!-- Bird body (smooth oval) -->
-    <ellipse cx="8.5" cy="9" rx="2.5" ry="1.8" fill="#6B7280"/>
-    
-    <!-- Bird head -->
-    <circle cx="5.5" cy="7" r="1.1" fill="#6B7280"/>
-    
-    <!-- Eye -->
-    <circle cx="5.2" cy="6.7" r="0.3" fill="#1F2937"/>
-    
-    <!-- Beak -->
-    <path d="M4.2 7L3.5 7.3L4 7.1Z" fill="#4B5563"/>
-    
-    <!-- Wing (subtle) -->
-    <ellipse cx="7.5" cy="8" rx="1.5" ry="1" fill="#9CA3AF" opacity="0.7"/>
-    
-    <!-- Tail -->
-    <path d="M10.8 9.5L12 8.8L11.2 10Z" fill="#6B7280"/>
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g>
+    <ellipse cx="16" cy="18" rx="6" ry="4.5" fill="#9CA3AF" opacity="0.9"/>
+    <circle cx="10" cy="14" r="4" fill="#9CA3AF" opacity="0.9"/>
+    <circle cx="9.5" cy="13.5" r="1.2" fill="white"/>
+    <circle cx="9.5" cy="13.5" r="0.6" fill="#6B7280"/>
+    <path d="M6.5 14L5 14.8L6.8 14.4Z" fill="#9CA3AF" opacity="0.8"/>
+    <ellipse cx="14" cy="16.5" rx="3.5" ry="2.5" fill="#D1D5DB" opacity="0.7" transform="rotate(-15 14 16.5)"/>
+    <ellipse cx="15.5" cy="19" rx="3" ry="2" fill="#D1D5DB" opacity="0.6" transform="rotate(10 15.5 19)"/>
   </g>
 </svg>
+
