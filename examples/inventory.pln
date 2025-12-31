@@ -1,0 +1,11 @@
+create a function named add_product that takes sku and name and price and quantity and does products[sku] = {"name": name, "price": price, "quantity": quantity}
+create a function named list_products that takes nothing and does for each sku in products do print sku + " - " + products[sku]["name"] + " - $" + str(products[sku]["price"])
+
+create a dictionary named products
+
+call add_product with "LAPTOP001" and "Gaming Laptop" and 1299.99 and 15
+call add_product with "MOUSE001" and "Wireless Mouse" and 29.99 and 50
+
+print "Sample products added"
+
+call list_products

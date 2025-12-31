@@ -1,0 +1,10 @@
+create a function named compare_strings that takes string_a and string_b and does
+    if len(string_a) is greater than len(string_b) then do
+        return False
+    return True
+
+set result to compare_strings("hello", "world")
+print result
+
+
+

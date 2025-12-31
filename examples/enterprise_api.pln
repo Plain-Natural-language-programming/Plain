@@ -1,0 +1,67 @@
+
+import logging
+import json
+from datetime import datetime
+
+class DummyDb:
+    def execute(self, query):
+        return []
+
+def connect(url):
+    return DummyDb()
+
+def require_auth(func):
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    return wrapper
+
+class BaseService:
+    def __init__(self):
+        self.users = {"12345": {"id": "12345", "name": "Jordan", "active": True}}
+
+create a list named all_users with [{"id": "12345", "name": "Jordan", "active": True}, {"id": "67890", "name": "Riley", "active": False}]
+
+create a class named UserService that extends BaseService
+
+create a method named get_user in class UserService that takes user_id and returns self.users.get(user_id)
+
+create a function named fetch_user_data that takes user_id and returns {"id": user_id, "name": "Demo", "active": True}
+
+create an async function named fetch_all_users that takes nothing and returns all_users
+
+create a function named process_users that takes user_list and does
+    for each user in user_list do
+        print user["name"]
+
+try do
+    set timestamp to datetime.utcnow().isoformat()
+    print "Fetched at " + timestamp
+catch exception as e do
+    print "Error fetching user: " + str(e)
+finally do
+    print "Cleanup completed"
+
+connect to database "postgresql://localhost/mydb"
+query database with "SELECT * FROM users WHERE active = true"
+insert into database "INSERT INTO users (name, email) VALUES ('John', 'john@example.com')"
+
+with open("data.json", "w") as file do file.write(json.dumps({"status": "ok"}))
+with open("data.json", "r") as file do data = json.load(file)
+
+create a generator named stream_users that takes nothing and yields
+    for each user in all_users do
+        yield user
+
+set active_names to [user["name"] for user in all_users if user["active"]]
+
+create a lambda function that takes x and returns x * 2
+
+create a function named authenticate_user that takes token and returns token == "ok"
+decorate authenticate_user with @require_auth
+
+logging info "User service initialized"
+logging error "Failed to connect to database"
+
+create an api endpoint at /api/users that get and returns jsonify({"users": all_users})
+
+create an async api endpoint at /api/users/async that get and returns await fetch_all_users()

@@ -1,0 +1,19 @@
+
+create a list named scores with [85, 92, 78, 96, 88, 91, 75]
+create a dictionary named student_data with {"Alice": 85, "Bob": 92, "Charlie": 78, "Diana": 96}
+
+create a function named calculate_average that takes scores and returns sum(scores) / len(scores)
+
+create a function named find_top_student that takes students and does
+    set top_name to ""
+    set top_score to 0
+    for each name in students do
+        set score to students[name]
+        if score is greater than top_score then do
+            set top_name to name
+            set top_score to score
+    return top_name
+
+print "Average score: " + str(calculate_average(scores))
+print "Top student: " + find_top_student(student_data)
+

@@ -1,0 +1,2 @@
+create a function named calc that takes two numbers and returns their sum
+print calc(5, 3)

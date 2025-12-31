@@ -1,0 +1,22 @@
+
+create a list named todos
+
+create a function named add_todo that takes title and description and does
+    todos.append({"title": title, "description": description, "completed": False})
+
+create a function named list_todos that takes nothing and does
+    for each todo in todos do
+        print todo["title"]
+
+create a function named complete_todo that takes index and does
+    todos[index]["completed"] = True
+
+print "Welcome to Todo Manager"
+
+call add_todo with "Learn Plain Language" and "Master natural English programming"
+call add_todo with "Build a demo" and "Ship the first CLI"
+
+call list_todos
+
+call complete_todo with 0
+print "First todo completed"

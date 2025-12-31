@@ -1,0 +1,13 @@
+
+create a function named process_file that takes filename and does
+    with open(filename, "r") as file do content = file.read()
+    set processed_content to content.upper()
+    set output_filename to filename.replace(".txt", "_processed.txt")
+    with open(output_filename, "w") as output_file do output_file.write(processed_content)
+    print "File processed successfully: " + output_filename
+
+set sample_text to "Plain Language file content"
+with open("data.txt", "w") as seed do seed.write(sample_text)
+
+call process_file with "data.txt"
+
