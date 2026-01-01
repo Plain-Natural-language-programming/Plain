@@ -70,7 +70,7 @@ class REPL:
     def _execute_plain_text(self, plain_text: str):
         """Execute plain text by transpiling and running it."""
         try:
-            python_code = self.transpiler.transpile(plain_text)
+            python_code, mapping = self.transpiler.transpile(plain_text, with_mapping=True)
             
             if self.verbose:
                 print("\nGenerated Python code:")
@@ -78,7 +78,12 @@ class REPL:
                 print(python_code)
                 print("-" * 60)
             
-            stdout, stderr, exception = self.runtime.execute_file(python_code)
+            stdout, stderr, exception = self.runtime.execute_file(
+                python_code,
+                filename="<repl>",
+                line_mapping=mapping,
+                source_lines=getattr(self.transpiler, "last_source_lines", None),
+            )
             
             if stdout:
                 print(stdout, end="")
@@ -87,7 +92,12 @@ class REPL:
                 print(stderr, end="", file=sys.stderr)
             
             if exception:
-                print(f"Error: {type(exception).__name__}: {exception}", file=sys.stderr)
+                if not stderr:
+                    detail = getattr(self.runtime, "last_error", None)
+                    if detail:
+                        print(detail, file=sys.stderr)
+                    else:
+                        print(f"Error: {type(exception).__name__}: {exception}", file=sys.stderr)
                 
         except Exception as e:
             print(f"Error: {str(e)}", file=sys.stderr)

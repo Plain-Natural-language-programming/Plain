@@ -2,8 +2,8 @@
 
 import ast
 from pathlib import Path
-from typing import Optional, Tuple
-from .enhanced_transpiler import EnhancedTranspiler
+from typing import Dict, List, Optional, Tuple
+from .enhanced_transpiler import EnhancedTranspiler, SourceLine
 
 
 class Compiler:
@@ -16,6 +16,9 @@ class Compiler:
             transpiler: Transpiler instance (creates enhanced one if not provided)
         """
         self.transpiler = transpiler or EnhancedTranspiler()
+        self.last_mapping: Dict[int, SourceLine] = {}
+        self.last_source_lines: List[str] = []
+        self.last_file: Optional[str] = None
     
     def read_pl_file(self, file_path: str) -> str:
         """Read a .pln file and return its contents.
@@ -80,7 +83,10 @@ class Compiler:
         if not plain_text.strip():
             raise ValueError(f"File is empty: {file_path}")
         
-        python_code = self.transpiler.transpile(plain_text)
+        python_code, mapping = self.transpiler.transpile(plain_text, with_mapping=True)
+        self.last_mapping = mapping or {}
+        self.last_source_lines = plain_text.splitlines()
+        self.last_file = file_path
         
         if validate:
             is_valid, error_msg = self.validate_python(python_code)

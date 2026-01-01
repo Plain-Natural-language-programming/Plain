@@ -5,7 +5,7 @@ import ast
 import keyword
 import re
 from dataclasses import dataclass
-from typing import Optional, Set, Tuple, List, Dict
+from typing import Optional, Set, Tuple, List, Dict, Union
 
 
 @dataclass
@@ -28,6 +28,7 @@ class TranspileResult:
     opens_block: bool = False
     block_type: Optional[str] = None
     block_name: Optional[str] = None
+    block_params: Optional[List[str]] = None
 
 
 @dataclass
@@ -35,6 +36,7 @@ class Block:
     indent: int
     block_type: str
     name: Optional[str] = None
+    params: Optional[List[str]] = None
 
 
 class EnhancedTranspiler:
@@ -298,10 +300,16 @@ class EnhancedTranspiler:
             ),
         }
 
-    def transpile(self, plain_text: str) -> str:
+        self.last_mapping: Dict[int, SourceLine] = {}
+        self.last_source_lines: List[str] = []
+
+    def transpile(self, plain_text: str, with_mapping: bool = False) -> Union[str, Tuple[str, Dict[int, SourceLine]]]:
         """Convert natural English to Python code."""
         if not plain_text.strip():
             raise ValueError("Input is empty.")
+
+        self.last_mapping = {}
+        self.last_source_lines = plain_text.splitlines()
 
         lines = self._tokenize_lines(plain_text)
         if not lines:
@@ -316,13 +324,16 @@ class EnhancedTranspiler:
         imports = self._generate_imports(detected_libraries, features)
 
         python_lines: List[str] = []
+        mapping: List[Optional[SourceLine]] = []
         if imports:
             python_lines.extend(imports)
             python_lines.append('')
+            mapping.extend([None] * (len(imports) + 1))
 
         if features.get('flask_app'):
             python_lines.append('app = Flask(__name__, root_path=os.getcwd())')
             python_lines.append('')
+            mapping.extend([None, None])
 
         stack: List[Block] = []
         endpoint_names: Set[str] = set()
@@ -338,10 +349,18 @@ class EnhancedTranspiler:
 
             for out in result.lines:
                 python_lines.append(' ' * (line.indent + out.indent_offset * indent_unit) + out.text)
+                mapping.append(line)
 
             if result.opens_block:
                 block_type = result.block_type or "block"
-                stack.append(Block(indent=line.indent, block_type=block_type, name=result.block_name))
+                stack.append(
+                    Block(
+                        indent=line.indent,
+                        block_type=block_type,
+                        name=result.block_name,
+                        params=result.block_params,
+                    )
+                )
 
             i += result.consumed
 
@@ -349,8 +368,15 @@ class EnhancedTranspiler:
             python_lines.append('')
             python_lines.append('if __name__ == "__main__":')
             python_lines.append(' ' * indent_unit + 'app.run(debug=True, port=5000)')
+            mapping.extend([None, None, None])
 
-        return '\n'.join(python_lines)
+        python_code = '\n'.join(python_lines)
+        mapping_dict = {idx + 1: src for idx, src in enumerate(mapping) if src is not None}
+        self.last_mapping = mapping_dict
+
+        if with_mapping:
+            return python_code, mapping_dict
+        return python_code
 
     def _transpile_line(
         self,
@@ -363,6 +389,7 @@ class EnhancedTranspiler:
     ) -> TranspileResult:
         """Transpile a single line or multi-line structure."""
         text = line.content.strip()
+        current_function_params = self._current_function_params(stack)
 
         match = self._patterns['string_length_comparison'].match(text)
         if match:
@@ -466,7 +493,11 @@ class EnhancedTranspiler:
         match = self._patterns['elif_then_inline'].match(text) or self._patterns['elif_do_inline'].match(text)
         if match:
             condition = self._parse_condition(match.group(1))
-            return self._render_inline_block(f"elif {condition}:", match.group(2))
+            return self._render_inline_block(
+                f"elif {condition}:",
+                match.group(2),
+                current_params=current_function_params,
+            )
 
         match = self._patterns['else_do_block'].match(text)
         if match:
@@ -474,7 +505,7 @@ class EnhancedTranspiler:
 
         match = self._patterns['else_inline'].match(text)
         if match:
-            return self._render_inline_block("else:", match.group(1))
+            return self._render_inline_block("else:", match.group(1), current_params=current_function_params)
 
         match = self._patterns['if_then_do_block'].match(text) or self._patterns['if_do_block'].match(text)
         if match:
@@ -489,13 +520,21 @@ class EnhancedTranspiler:
         match = self._patterns['if_return'].match(text)
         if match:
             condition = self._parse_condition(match.group(1))
-            return_value = self._parse_value(match.group(2))
-            return self._render_inline_block(f"if {condition}:", f"return {return_value}")
+            return_value = self._parse_value(match.group(2), current_params=current_function_params)
+            return self._render_inline_block(
+                f"if {condition}:",
+                f"return {return_value}",
+                current_params=current_function_params,
+            )
 
         match = self._patterns['if_then_inline'].match(text) or self._patterns['if_do_inline'].match(text)
         if match:
             condition = self._parse_condition(match.group(1))
-            return self._render_inline_block(f"if {condition}:", match.group(2))
+            return self._render_inline_block(
+                f"if {condition}:",
+                match.group(2),
+                current_params=current_function_params,
+            )
 
         match = self._patterns['for_each'].match(text)
         if match:
@@ -503,7 +542,11 @@ class EnhancedTranspiler:
             iterable = self._parse_expression(match.group(2))
             action = match.group(3).strip()
             if action:
-                return self._render_inline_block(f"for {var} in {iterable}:", action)
+                return self._render_inline_block(
+                    f"for {var} in {iterable}:",
+                    action,
+                    current_params=current_function_params,
+                )
             return self._render_block_header(
                 f"for {var} in {iterable}:",
                 all_lines,
@@ -528,7 +571,7 @@ class EnhancedTranspiler:
             action = match.group(2).strip()
             header = f"for _ in range({count_expr}):"
             if action:
-                return self._render_inline_block(header, action)
+                return self._render_inline_block(header, action, current_params=current_function_params)
             return self._render_block_header(
                 header,
                 all_lines,
@@ -542,7 +585,7 @@ class EnhancedTranspiler:
             action = match.group(2).strip()
             header = f"while not ({condition}):"
             if action:
-                return self._render_inline_block(header, action)
+                return self._render_inline_block(header, action, current_params=current_function_params)
             return self._render_block_header(
                 header,
                 all_lines,
@@ -556,7 +599,7 @@ class EnhancedTranspiler:
             action = match.group(2).strip()
             header = f"while {condition}:"
             if action:
-                return self._render_inline_block(header, action)
+                return self._render_inline_block(header, action, current_params=current_function_params)
             return self._render_block_header(
                 header,
                 all_lines,
@@ -574,7 +617,11 @@ class EnhancedTranspiler:
             condition = self._parse_condition(match.group(1))
             action = match.group(2).strip()
             if action:
-                return self._render_inline_block(f"while {condition}:", action)
+                return self._render_inline_block(
+                    f"while {condition}:",
+                    action,
+                    current_params=current_function_params,
+                )
             return self._render_block_header(
                 f"while {condition}:",
                 all_lines,
@@ -588,7 +635,11 @@ class EnhancedTranspiler:
             var = match.group(2)
             action = match.group(3).strip()
             if action:
-                return self._render_inline_block(f"with {resource} as {var}:", action)
+                return self._render_inline_block(
+                    f"with {resource} as {var}:",
+                    action,
+                    current_params=current_function_params,
+                )
             return self._render_block_header(
                 f"with {resource} as {var}:",
                 all_lines,
@@ -601,7 +652,11 @@ class EnhancedTranspiler:
             resource = self._parse_expression(match.group(1))
             action = match.group(2).strip()
             if action:
-                return self._render_inline_block(f"with {resource}:", action)
+                return self._render_inline_block(
+                    f"with {resource}:",
+                    action,
+                    current_params=current_function_params,
+                )
             return self._render_block_header(
                 f"with {resource}:",
                 all_lines,
@@ -622,14 +677,14 @@ class EnhancedTranspiler:
             else:
                 header = "except Exception:"
             if action:
-                return self._render_inline_block(header, action)
+                return self._render_inline_block(header, action, current_params=current_function_params)
             return self._render_block_header(header, all_lines, index, line.indent)
 
         match = self._patterns['finally'].match(text)
         if match:
             action = match.group(1).strip() if match.group(1) else ""
             if action:
-                return self._render_inline_block("finally:", action)
+                return self._render_inline_block("finally:", action, current_params=current_function_params)
             return self._render_block_header("finally:", all_lines, index, line.indent)
 
         match = self._patterns['create_function'].match(text) or self._patterns['define_function'].match(text)
@@ -642,9 +697,16 @@ class EnhancedTranspiler:
             params = self._parse_parameters(params_text)
             header = f"def {name}({', '.join(params)}):"
             if body_text:
-                body_lines = self._render_inline_body(action_type, body_text)
+                body_lines = self._render_inline_body(action_type, body_text, current_params=params)
                 return TranspileResult(lines=[OutputLine(0, header)] + body_lines)
-            return self._render_block_header(header, all_lines, index, line.indent, block_type="def")
+            return self._render_block_header(
+                header,
+                all_lines,
+                index,
+                line.indent,
+                block_type="def",
+                block_params=params,
+            )
 
         match = self._patterns['async_function'].match(text)
         if match:
@@ -656,9 +718,16 @@ class EnhancedTranspiler:
             params = self._parse_parameters(params_text)
             header = f"async def {name}({', '.join(params)}):"
             if body_text:
-                body_lines = self._render_inline_body(action_type, body_text)
+                body_lines = self._render_inline_body(action_type, body_text, current_params=params)
                 return TranspileResult(lines=[OutputLine(0, header)] + body_lines)
-            return self._render_block_header(header, all_lines, index, line.indent, block_type="def")
+            return self._render_block_header(
+                header,
+                all_lines,
+                index,
+                line.indent,
+                block_type="def",
+                block_params=params,
+            )
 
         match = self._patterns['generator'].match(text)
         if match:
@@ -669,13 +738,20 @@ class EnhancedTranspiler:
             header = f"def {name}({', '.join(params)}):"
             if yield_expr:
                 if self._should_parse_inline_action(yield_expr):
-                    action_lines = self._parse_inline_action(yield_expr)
+                    action_lines = self._parse_inline_action(yield_expr, current_params=params)
                     if action_lines:
                         body_lines = [OutputLine(1 + item.indent_offset, item.text) for item in action_lines]
                         return TranspileResult(lines=[OutputLine(0, header)] + body_lines)
                 yield_line = OutputLine(1, f"yield {self._parse_expression(yield_expr)}")
                 return TranspileResult(lines=[OutputLine(0, header), yield_line])
-            return self._render_block_header(header, all_lines, index, line.indent, block_type="def")
+            return self._render_block_header(
+                header,
+                all_lines,
+                index,
+                line.indent,
+                block_type="def",
+                block_params=params,
+            )
 
         match = self._patterns['class_inheritance'].match(text)
         if match:
@@ -871,7 +947,7 @@ class EnhancedTranspiler:
 
         match = self._patterns['return'].match(text)
         if match:
-            value = self._parse_value(match.group(1))
+            value = self._parse_value(match.group(1), current_params=current_function_params)
             return TranspileResult(lines=[OutputLine(0, f"return {value}")])
 
         match = self._patterns['await'].match(text)
@@ -1018,6 +1094,12 @@ class EnhancedTranspiler:
                 return block.name
         return None
 
+    def _current_function_params(self, stack: List[Block]) -> Optional[List[str]]:
+        for block in reversed(stack):
+            if block.block_type == "def":
+                return block.params
+        return None
+
     def _should_autopass(self, all_lines: List[SourceLine], index: int, current_indent: int) -> bool:
         if index + 1 >= len(all_lines):
             return True
@@ -1027,6 +1109,11 @@ class EnhancedTranspiler:
         if '=' not in text:
             return False
         if '==' in text or '!=' in text or '>=' in text or '<=' in text or ':=' in text:
+            return False
+        left, _, right = text.partition('=')
+        if not left.strip() or not right.strip():
+            return False
+        if not self._is_assignable_expr(left.strip()):
             return False
         return True
 
@@ -1306,25 +1393,42 @@ class EnhancedTranspiler:
         current_indent: int,
         block_type: Optional[str] = None,
         block_name: Optional[str] = None,
+        block_params: Optional[List[str]] = None,
     ) -> TranspileResult:
         lines = [OutputLine(0, header)]
         if self._should_autopass(all_lines, index, current_indent):
             lines.append(OutputLine(1, "pass"))
-            return TranspileResult(lines=lines)
-        return TranspileResult(lines=lines, opens_block=True, block_type=block_type, block_name=block_name)
+            return TranspileResult(lines=lines, block_params=block_params)
+        return TranspileResult(
+            lines=lines,
+            opens_block=True,
+            block_type=block_type,
+            block_name=block_name,
+            block_params=block_params,
+        )
 
-    def _render_inline_block(self, header: str, action_text: str) -> TranspileResult:
-        action_lines = self._parse_inline_action(action_text)
+    def _render_inline_block(
+        self,
+        header: str,
+        action_text: str,
+        current_params: Optional[List[str]] = None,
+    ) -> TranspileResult:
+        action_lines = self._parse_inline_action(action_text, current_params=current_params)
         if not action_lines:
             action_lines = [OutputLine(0, "pass")]
         lines = [OutputLine(0, header)]
         lines.extend([OutputLine(1 + item.indent_offset, item.text) for item in action_lines])
         return TranspileResult(lines=lines)
 
-    def _render_inline_body(self, action_type: str, body_text: str) -> List[OutputLine]:
+    def _render_inline_body(
+        self,
+        action_type: str,
+        body_text: str,
+        current_params: Optional[List[str]] = None,
+    ) -> List[OutputLine]:
         if action_type == "returns":
-            return [OutputLine(1, f"return {self._parse_value(body_text)}")]
-        action_lines = self._parse_inline_action(body_text)
+            return [OutputLine(1, f"return {self._parse_value(body_text, current_params=current_params)}")]
+        action_lines = self._parse_inline_action(body_text, current_params=current_params)
         if not action_lines:
             action_lines = [OutputLine(0, "pass")]
         return [OutputLine(1 + item.indent_offset, item.text) for item in action_lines]
@@ -1372,7 +1476,7 @@ class EnhancedTranspiler:
             return TranspileResult(lines=lines)
 
         if self._should_autopass(all_lines, index, current_indent):
-            lines.append(OutputLine(1, "pass"))
+            lines.append(OutputLine(1, "return \"\""))
             return TranspileResult(lines=lines)
 
         return TranspileResult(lines=lines, opens_block=True, block_type="def")
@@ -1416,6 +1520,7 @@ class EnhancedTranspiler:
         is_instance_method: bool = False,
     ) -> TranspileResult:
         params = self._parse_parameters(params_text)
+        user_params = list(params)
         action_type = action_type.strip().lower()
         body_text = body_text.strip()
 
@@ -1434,12 +1539,23 @@ class EnhancedTranspiler:
             header = f"def {method_name}({', '.join(params)}):"
             lines.append(OutputLine(0, header))
             if body_text:
-                lines.extend(self._render_inline_body(action_type, body_text))
+                lines.extend(
+                    self._render_inline_body(
+                        action_type,
+                        body_text,
+                        current_params=user_params,
+                    )
+                )
                 return TranspileResult(lines=lines)
             if self._should_autopass(all_lines, index, current_indent):
                 lines.append(OutputLine(1, "pass"))
                 return TranspileResult(lines=lines)
-            return TranspileResult(lines=lines, opens_block=True, block_type="def")
+            return TranspileResult(
+                lines=lines,
+                opens_block=True,
+                block_type="def",
+                block_params=user_params,
+            )
 
         target_class = class_name or current_class
         if not target_class:
@@ -1449,7 +1565,13 @@ class EnhancedTranspiler:
         func_name = f"_{target_class}_{method_name}"
         lines = [OutputLine(0, f"def {func_name}({', '.join(self._prefix_method_params(params, is_class_method, is_static_method))}):")]
         if body_text:
-            lines.extend(self._render_inline_body(action_type, body_text))
+            lines.extend(
+                self._render_inline_body(
+                    action_type,
+                    body_text,
+                    current_params=user_params,
+                )
+            )
         else:
             lines.append(OutputLine(1, "pass"))
 
@@ -1505,7 +1627,7 @@ class EnhancedTranspiler:
         ]
         return TranspileResult(lines=lines)
 
-    def _parse_inline_action(self, action_text: str) -> List[OutputLine]:
+    def _parse_inline_action(self, action_text: str, current_params: Optional[List[str]] = None) -> List[OutputLine]:
         """Parse a single inline statement into output lines."""
         text = action_text.strip()
         if not text:
@@ -1526,7 +1648,7 @@ class EnhancedTranspiler:
             iterable = self._parse_expression(match.group(2))
             action = match.group(3).strip()
             if action:
-                nested = self._parse_inline_action(action)
+                nested = self._parse_inline_action(action, current_params=current_params)
             else:
                 nested = [OutputLine(0, "pass")]
             lines = [OutputLine(0, f"for {var} in {iterable}:")]
@@ -1538,7 +1660,7 @@ class EnhancedTranspiler:
             count_expr = self._parse_expression(match.group(1))
             action = match.group(2).strip()
             if action:
-                nested = self._parse_inline_action(action)
+                nested = self._parse_inline_action(action, current_params=current_params)
             else:
                 nested = [OutputLine(0, "pass")]
             lines = [OutputLine(0, f"for _ in range({count_expr}):")]
@@ -1550,7 +1672,7 @@ class EnhancedTranspiler:
             condition = self._parse_condition(match.group(1))
             action = match.group(2).strip()
             if action:
-                nested = self._parse_inline_action(action)
+                nested = self._parse_inline_action(action, current_params=current_params)
             else:
                 nested = [OutputLine(0, "pass")]
             lines = [OutputLine(0, f"while not ({condition}):")]
@@ -1562,7 +1684,7 @@ class EnhancedTranspiler:
             condition = self._parse_condition(match.group(1))
             action = match.group(2).strip()
             if action:
-                nested = self._parse_inline_action(action)
+                nested = self._parse_inline_action(action, current_params=current_params)
             else:
                 nested = [OutputLine(0, "pass")]
             lines = [OutputLine(0, f"while {condition}:")]
@@ -1579,7 +1701,7 @@ class EnhancedTranspiler:
             condition = self._parse_condition(match.group(1))
             action = match.group(2).strip()
             if action:
-                nested = self._parse_inline_action(action)
+                nested = self._parse_inline_action(action, current_params=current_params)
             else:
                 nested = [OutputLine(0, "pass")]
             lines = [OutputLine(0, f"while {condition}:")]
@@ -1589,7 +1711,7 @@ class EnhancedTranspiler:
         match = self._patterns['if_return'].match(text)
         if match:
             condition = self._parse_condition(match.group(1))
-            value = self._parse_value(match.group(2))
+            value = self._parse_value(match.group(2), current_params=current_params)
             return [
                 OutputLine(0, f"if {condition}:"),
                 OutputLine(1, f"return {value}"),
@@ -1598,7 +1720,7 @@ class EnhancedTranspiler:
         match = self._patterns['if_then_inline'].match(text) or self._patterns['if_do_inline'].match(text)
         if match:
             condition = self._parse_condition(match.group(1))
-            nested = self._parse_inline_action(match.group(2))
+            nested = self._parse_inline_action(match.group(2), current_params=current_params)
             if not nested:
                 nested = [OutputLine(0, "pass")]
             lines = [OutputLine(0, f"if {condition}:")]
@@ -1627,7 +1749,7 @@ class EnhancedTranspiler:
 
         match = self._patterns['return'].match(text)
         if match:
-            value = self._parse_value(match.group(1))
+            value = self._parse_value(match.group(1), current_params=current_params)
             return [OutputLine(0, f"return {value}")]
 
         match = self._patterns['set_named'].match(text)
@@ -1999,8 +2121,11 @@ class EnhancedTranspiler:
             return expr
 
         if not self._is_valid_python_expr(expr):
-            if re.match(r'^[A-Za-z][A-Za-z0-9_\s\-]*$', expr):
-                return self._sanitize_identifier(expr)
+            if re.match(r'^[A-Za-z_]\w*$', expr):
+                return expr
+            if re.search(r'\s', expr) or re.search(r'[^\w]', expr):
+                return self._quote_string(expr)
+            return self._quote_string(expr)
         return expr
 
     def _parse_condition(self, condition: str) -> str:
@@ -2171,15 +2296,42 @@ class EnhancedTranspiler:
 
         return condition
 
-    def _parse_value(self, value: str) -> str:
+    def _infer_param_aggregate(self, value: str, params: Optional[List[str]]) -> Optional[str]:
+        """Infer simple aggregations like 'their sum' using available parameters."""
+        if not params:
+            return None
+        cleaned_params = [p for p in params if p not in ("self", "cls")]
+        if not cleaned_params:
+            return None
+        normalized = value.strip().lower()
+        if not normalized:
+            return None
+        sum_patterns = (
+            r'^(?:their|the)\s+sum\b',
+            r'^(?:their|the)\s+total\b',
+            r'^sum\s+of\s+them\b',
+            r'^sum\s+of\s+their\b',
+            r'^total\s+of\s+them\b',
+        )
+        for pattern in sum_patterns:
+            if re.match(pattern, normalized):
+                if len(cleaned_params) == 1:
+                    return cleaned_params[0]
+                if len(cleaned_params) == 2:
+                    return f"{cleaned_params[0]} + {cleaned_params[1]}"
+                return " + ".join(cleaned_params)
+        return None
+
+    def _parse_value(self, value: str, current_params: Optional[List[str]] = None) -> str:
         """Parse a value from natural English."""
         value = value.strip()
 
-        if value.lower() == 'true':
+        lower = value.lower()
+        if lower == 'true':
             return 'True'
-        if value.lower() == 'false':
+        if lower == 'false':
             return 'False'
-        if value.lower() in ('none', 'null'):
+        if lower in ('none', 'null'):
             return 'None'
 
         if re.match(r'^-?\d+(\.\d+)?$', value):
@@ -2187,6 +2339,10 @@ class EnhancedTranspiler:
 
         if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
             return value
+
+        inferred = self._infer_param_aggregate(value, current_params)
+        if inferred is not None:
+            return inferred
 
         parsed = self._parse_expression(value)
         if parsed == value and not self._is_valid_python_expr(parsed):

@@ -53,7 +53,12 @@ def run(file_path: str, no_validate: bool, verbose: bool):
             click.echo("\nExecuting...\n")
         
         runtime = Runtime()
-        stdout, stderr, exception = runtime.execute_file(python_code)
+        stdout, stderr, exception = runtime.execute_file(
+            python_code,
+            filename=file_path,
+            line_mapping=getattr(compiler, "last_mapping", None),
+            source_lines=getattr(compiler, "last_source_lines", None),
+        )
         
         if stdout:
             click.echo(stdout, nl=False)
@@ -62,7 +67,12 @@ def run(file_path: str, no_validate: bool, verbose: bool):
             click.echo(stderr, nl=False, err=True)
         
         if exception:
-            click.echo(f"Error: {type(exception).__name__}: {exception}", err=True)
+            if not stderr:
+                detail = getattr(runtime, "last_error", None)
+                if detail:
+                    click.echo(detail, err=True)
+                else:
+                    click.echo(f"Error: {type(exception).__name__}: {exception}", err=True)
             sys.exit(1)
             
     except ImportError as e:
@@ -119,7 +129,7 @@ def compile_cmd(file_path: str, output: str, no_validate: bool):
 def repl(verbose: bool):
     """Start an interactive REPL."""
     try:
-        repl_instance = REPL(verbose=verbose, use_enhanced=True)
+        repl_instance = REPL(verbose=verbose)
         repl_instance.run()
         
     except ImportError as e:
